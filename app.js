@@ -10,8 +10,9 @@ async function boot() {
             fetch('./conflicts.json').then(r => r.json())
         ]);
         
-        countriesMaster = m;
+        countriesMaster = Object.values(m).flat();
         CFR_DATA = c;
+        
         document.getElementById('map-wrapper').innerHTML = s;
         
         setup();
@@ -20,8 +21,14 @@ async function boot() {
         
         pz.fit();
         pz.center();
+
+        const params = new URLSearchParams(window.location.search);
+        const sectorCode = params.get('sector');
+        if (sectorCode) {
+            setTimeout(() => focus(sectorCode.toUpperCase()), 500);
+        }
     } catch (e) {
-        console.error("BOOT_FAILURE: Verify JSON/SVG paths.");
+        console.error("SYSTEM_FAILURE: Critical data load error.", e);
     }
 }
 
@@ -31,6 +38,7 @@ function setup() {
         zoomEnabled: true, fit: true, center: true, maxZoom: 80,
         eventsListenerElement: document.getElementById('map-wrapper')
     });
+
     document.querySelectorAll('path').forEach(p => {
         if (CFR_DATA[p.id]) p.classList.add('conflict-active');
         p.addEventListener('pointerdown', (e) => {
@@ -38,79 +46,134 @@ function setup() {
             focus(p.id);
         });
     });
+
     v.addEventListener('pointerdown', (e) => {
         if (e.target.tagName === 'svg') kill();
     });
 }
 
+/**
+ * Handles board collapse with visual transparency logic
+ */
+function toggleBoard(forceState = null) {
+    const board = document.getElementById('conflict-board');
+    const btn = document.getElementById('board-toggle');
+    
+    if (forceState === 'collapse') {
+        board.classList.add('collapsed');
+    } else if (forceState === 'expand') {
+        board.classList.remove('collapsed');
+    } else {
+        board.classList.toggle('collapsed');
+    }
+    
+    btn.textContent = board.classList.contains('collapsed') ? '▵' : '_';
+}
+
 function draw() {
     const stream = document.getElementById('conflict-stream');
+    const statsContainer = document.getElementById('level-stats');
     stream.innerHTML = '';
-    Object.entries(CFR_DATA).forEach(([i, d]) => {
-        const m = countriesMaster.find(x => x.code === i);
-        if (!m) return;
-        const e = document.createElement('div');
-        e.className = 'intel-card';
-        e.innerHTML = `<div style="font-size:0.8rem; font-weight:700;">${m.emoji} ${m.name}</div><div class="card-risk">${d.risk}</div><div class="card-subj">${d.subject}</div>`;
-        e.onpointerdown = () => focus(i);
-        stream.appendChild(e);
+    
+    const stats = { CRITICAL: 0, SIGNIFICANT: 0, LIMITED: 0 };
+    Object.values(CFR_DATA).forEach(d => { if(stats[d.risk] !== undefined) stats[d.risk]++; });
+
+    statsContainer.innerHTML = Object.entries(stats).map(([level, count]) => `
+        <div class="stat-item">${level}:<span class="stat-count">${count}</span></div>
+    `).join('');
+
+    Object.entries(CFR_DATA).forEach(([code, data]) => {
+        const country = countriesMaster.find(x => x.code === code);
+        if (!country) return;
+
+        const card = document.createElement('div');
+        card.className = 'intel-card';
+        card.innerHTML = `
+            <div class="card-name">${country.emoji} ${country.name.toUpperCase()}</div>
+            <div class="card-risk">IMPACT: ${data.risk}</div>
+            <div class="card-subj">${data.subject}</div>
+        `;
+        card.onpointerdown = () => focus(code);
+        stream.appendChild(card);
     });
 }
 
 function ticker() {
     const t = document.getElementById('news-ticker');
-    const l = Object.entries(CFR_DATA).map(([i, d]) => {
-        const m = countriesMaster.find(x => x.code === i);
-        return `[LOG_${i}] ${m ? m.name.toUpperCase() : i} // ${d.subject} — `;
+    const log = Object.entries(CFR_DATA).map(([code, data]) => {
+        const country = countriesMaster.find(x => x.code === code);
+        return `[LOG_${code}] ${country ? country.name.toUpperCase() : code} // ${data.subject} — `;
     }).join(' ');
-    t.textContent = (l + " ").repeat(2);
+    t.textContent = (log + " ").repeat(2);
 }
 
-function focus(i) {
-    const p = document.getElementById(i);
-    const m = countriesMaster.find(x => x.code === i);
-    const o = document.getElementById('info-portal');
-    if (!p || !m) return;
+function focus(code) {
+    const path = document.getElementById(code);
+    const country = countriesMaster.find(x => x.code === code);
+    const portal = document.getElementById('info-portal');
     
-    if (p.classList.contains('selected')) { kill(); return; }
+    if (!path || !country) return;
+    
+    if (path.classList.contains('selected')) { kill(); return; }
     document.querySelectorAll('.selected').forEach(x => x.classList.remove('selected'));
-    p.classList.add('selected');
+    path.classList.add('selected');
 
-    const d = CFR_DATA[i];
-    document.getElementById('p-emoji').textContent = m.emoji;
-    document.getElementById('p-name').textContent = m.name;
-    document.getElementById('p-code').textContent = `SECTOR: ${i}`;
+    // AUTO-COLLAPSE to show map through transparent header
+    toggleBoard('collapse');
+
+    const data = CFR_DATA[code];
+    document.getElementById('p-emoji').textContent = country.emoji;
+    document.getElementById('p-name').textContent = country.name;
+    document.getElementById('p-code').textContent = `SECTOR: ${code}`;
     
-    const g = document.getElementById('p-risk-tag');
-    const s = document.getElementById('p-subject');
+    const riskTag = document.getElementById('p-risk-tag');
+    const subjectBox = document.getElementById('p-subject');
+    const shareBtn = document.getElementById('share-intel-btn');
     
-    if (d) {
-        g.textContent = `IMPACT: ${d.risk}`;
-        g.classList.add('risk-active-tag');
-        s.textContent = d.subject;
-        s.classList.add('subject-active');
+    shareBtn.onclick = () => shareConflict(code, country.name);
+
+    if (data) {
+        riskTag.textContent = `IMPACT: ${data.risk}`;
+        riskTag.classList.add('risk-active-tag');
+        subjectBox.textContent = data.subject;
+        subjectBox.classList.add('subject-active');
     } else {
-        g.textContent = `STATUS: STABLE`;
-        g.classList.remove('risk-active-tag');
-        s.textContent = "Sector monitoring active. No critical conflicts reported in this region via CFR Global Tracker.";
-        s.classList.remove('subject-active');
+        riskTag.textContent = `STATUS: STABLE`;
+        riskTag.classList.remove('risk-active-tag');
+        subjectBox.textContent = "Sector monitoring active. No critical conflicts reported.";
+        subjectBox.classList.remove('subject-active');
     }
 
-    o.classList.remove('hidden');
-    const b = p.getBBox();
-    const c = document.getElementById('map-wrapper');
-    const z = Math.min(c.clientWidth / b.width, c.clientHeight / b.height) * 0.4;
+    portal.classList.remove('hidden');
+    const bbox = path.getBBox();
+    const wrapper = document.getElementById('map-wrapper');
+    const zoomLevel = Math.min(wrapper.clientWidth / bbox.width, wrapper.clientHeight / bbox.height) * 0.4;
+    
     pz.zoom(1);
     pz.pan({
-        x: (c.clientWidth / 2) - ((b.x + b.width / 2) * pz.getSizes().realZoom),
-        y: (c.clientHeight / 2) - ((b.y + b.height / 2) * pz.getSizes().realZoom)
+        x: (wrapper.clientWidth / 2) - ((bbox.x + bbox.width / 2) * pz.getSizes().realZoom),
+        y: (wrapper.clientHeight / 2) - ((bbox.y + bbox.height / 2) * pz.getSizes().realZoom)
     });
-    pz.zoomAtPoint(Math.min(z, 12), { x: c.clientWidth / 2, y: c.clientHeight / 2 });
+    pz.zoomAtPoint(Math.min(zoomLevel, 12), { x: wrapper.clientWidth / 2, y: wrapper.clientHeight / 2 });
+}
+
+function shareConflict(code, name) {
+    const url = `${window.location.origin}${window.location.pathname}?sector=${code}`;
+    if (navigator.share) {
+        navigator.share({ title: `Tactical Intel: ${name}`, url: url });
+    } else {
+        navigator.clipboard.writeText(url).then(() => {
+            const btn = document.getElementById('share-intel-btn');
+            btn.textContent = "COPIED TO CLIPBOARD";
+            setTimeout(() => btn.textContent = "SHARE INTEL", 2000);
+        });
+    }
 }
 
 function kill() {
     document.querySelectorAll('.selected').forEach(x => x.classList.remove('selected'));
     document.getElementById('info-portal').classList.add('hidden');
+    window.history.replaceState({}, document.title, window.location.pathname);
 }
 
 function zoomInMap() { pz.zoomIn(); }
