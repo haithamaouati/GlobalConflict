@@ -14,28 +14,29 @@ async function boot() {
         CFR_DATA = c;
         
         document.getElementById('map-wrapper').innerHTML = s;
-        
         setup();
         draw();
         ticker();
-        
         pz.fit();
         pz.center();
 
         const params = new URLSearchParams(window.location.search);
         const sectorCode = params.get('sector');
-        if (sectorCode) {
-            setTimeout(() => focus(sectorCode.toUpperCase()), 500);
-        }
+        if (sectorCode) setTimeout(() => focus(sectorCode.toUpperCase()), 500);
     } catch (e) {
-        console.error("SYSTEM_FAILURE: Critical data load error.", e);
+        console.error("SYSTEM_FAILURE", e);
     }
 }
 
 function setup() {
     const v = document.querySelector('svg');
     pz = svgPanZoom(v, {
-        zoomEnabled: true, fit: true, center: true, maxZoom: 80,
+        zoomEnabled: true, 
+        fit: true, 
+        center: true, 
+        maxZoom: 80,
+        mouseWheelZoomEnabled: true,
+        controlIconsEnabled: false,
         eventsListenerElement: document.getElementById('map-wrapper')
     });
 
@@ -52,20 +53,13 @@ function setup() {
     });
 }
 
-/**
- * Handles board collapse with visual transparency logic
- */
 function toggleBoard(forceState = null) {
     const board = document.getElementById('conflict-board');
     const btn = document.getElementById('board-toggle');
     
-    if (forceState === 'collapse') {
-        board.classList.add('collapsed');
-    } else if (forceState === 'expand') {
-        board.classList.remove('collapsed');
-    } else {
-        board.classList.toggle('collapsed');
-    }
+    if (forceState === 'collapse') board.classList.add('collapsed');
+    else if (forceState === 'expand') board.classList.remove('collapsed');
+    else board.classList.toggle('collapsed');
     
     btn.textContent = board.classList.contains('collapsed') ? '▵' : '_';
 }
@@ -76,7 +70,9 @@ function draw() {
     stream.innerHTML = '';
     
     const stats = { CRITICAL: 0, SIGNIFICANT: 0, LIMITED: 0 };
-    Object.values(CFR_DATA).forEach(d => { if(stats[d.risk] !== undefined) stats[d.risk]++; });
+    Object.values(CFR_DATA).forEach(d => { 
+        if(stats[d.risk.toUpperCase()] !== undefined) stats[d.risk.toUpperCase()]++; 
+    });
 
     statsContainer.innerHTML = Object.entries(stats).map(([level, count]) => `
         <div class="stat-item">${level}:<span class="stat-count">${count}</span></div>
@@ -85,7 +81,6 @@ function draw() {
     Object.entries(CFR_DATA).forEach(([code, data]) => {
         const country = countriesMaster.find(x => x.code === code);
         if (!country) return;
-
         const card = document.createElement('div');
         card.className = 'intel-card';
         card.innerHTML = `
@@ -111,14 +106,12 @@ function focus(code) {
     const path = document.getElementById(code);
     const country = countriesMaster.find(x => x.code === code);
     const portal = document.getElementById('info-portal');
-    
     if (!path || !country) return;
     
     if (path.classList.contains('selected')) { kill(); return; }
     document.querySelectorAll('.selected').forEach(x => x.classList.remove('selected'));
     path.classList.add('selected');
 
-    // AUTO-COLLAPSE to show map through transparent header
     toggleBoard('collapse');
 
     const data = CFR_DATA[code];
@@ -128,10 +121,7 @@ function focus(code) {
     
     const riskTag = document.getElementById('p-risk-tag');
     const subjectBox = document.getElementById('p-subject');
-    const shareBtn = document.getElementById('share-intel-btn');
     
-    shareBtn.onclick = () => shareConflict(code, country.name);
-
     if (data) {
         riskTag.textContent = `IMPACT: ${data.risk}`;
         riskTag.classList.add('risk-active-tag');
@@ -145,35 +135,60 @@ function focus(code) {
     }
 
     portal.classList.remove('hidden');
+
     const bbox = path.getBBox();
     const wrapper = document.getElementById('map-wrapper');
-    const zoomLevel = Math.min(wrapper.clientWidth / bbox.width, wrapper.clientHeight / bbox.height) * 0.4;
-    
-    pz.zoom(1);
-    pz.pan({
-        x: (wrapper.clientWidth / 2) - ((bbox.x + bbox.width / 2) * pz.getSizes().realZoom),
-        y: (wrapper.clientHeight / 2) - ((bbox.y + bbox.height / 2) * pz.getSizes().realZoom)
-    });
-    pz.zoomAtPoint(Math.min(zoomLevel, 12), { x: wrapper.clientWidth / 2, y: wrapper.clientHeight / 2 });
-}
+    const targetZoom = Math.min(wrapper.clientWidth / bbox.width, wrapper.clientHeight / bbox.height) * 0.4;
+    const finalZoom = Math.min(Math.max(targetZoom, 2), 15);
 
-function shareConflict(code, name) {
-    const url = `${window.location.origin}${window.location.pathname}?sector=${code}`;
-    if (navigator.share) {
-        navigator.share({ title: `Tactical Intel: ${name}`, url: url });
-    } else {
-        navigator.clipboard.writeText(url).then(() => {
-            const btn = document.getElementById('share-intel-btn');
-            btn.textContent = "COPIED TO CLIPBOARD";
-            setTimeout(() => btn.textContent = "SHARE INTEL", 2000);
-        });
-    }
+    // Optimized offset to keep country clear of the card (65% horizontal)
+    const isMobile = window.innerWidth <= 768;
+    const offsetX = isMobile ? (wrapper.clientWidth / 2) : (wrapper.clientWidth * 0.65);
+    const offsetY = isMobile ? (wrapper.clientHeight * 0.4) : (wrapper.clientHeight / 2);
+
+    const targetX = offsetX - ((bbox.x + bbox.width / 2) * finalZoom);
+    const targetY = offsetY - ((bbox.y + bbox.height / 2) * finalZoom);
+
+    pz.zoom(1.1);
+    
+    setTimeout(() => {
+        pz.zoom(finalZoom);
+        pz.pan({ x: targetX, y: targetY });
+    }, 50);
 }
 
 function kill() {
     document.querySelectorAll('.selected').forEach(x => x.classList.remove('selected'));
     document.getElementById('info-portal').classList.add('hidden');
     window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+/**
+ * FIXED: Secure Intelligence Sharing Logic
+ */
+async function shareIntel() {
+    const name = document.getElementById('p-name').innerText;
+    const codeRaw = document.getElementById('p-code').innerText;
+    const code = codeRaw.split(': ')[1];
+    
+    const url = `${window.location.origin}${window.location.pathname}?sector=${code}`;
+    
+    const shareData = {
+        title: `Intel Report: ${name}`,
+        text: `Active tactical sector monitoring for ${name} [${code}]. View the live theater:`,
+        url: url
+    };
+
+    try {
+        if (navigator.share) {
+            await navigator.share(shareData);
+        } else {
+            await navigator.clipboard.writeText(`${shareData.text} ${url}`);
+            alert("SECURE INTEL COPIED TO CLIPBOARD");
+        }
+    } catch (err) {
+        console.error("SHARE_LOG_FAILURE", err);
+    }
 }
 
 function zoomInMap() { pz.zoomIn(); }
