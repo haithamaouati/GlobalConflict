@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
     <title>Global Conflict</title>
+    <meta name="author" content="Haitham Aouati">
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
@@ -27,16 +30,24 @@
             <div id="status-line"><span class="pulse"></span> SYSTEM ACTIVE</div>
         </div>
         <div class="nav-cluster">
-            <button onpointerdown="zoomInMap()">+</button>
-            <button onpointerdown="zoomOutMap()">−</button>
-            <button onpointerdown="resetMap()">⟲</button>
+            <button onpointerdown="zoomInMap()" title="Zoom In">+</button>
+            <button onpointerdown="zoomOutMap()" title="Zoom Out">−</button>
+            <button onpointerdown="resetMap()" title="Reset View">⟲</button>
         </div>
     </header>
 
     <div id="map-wrapper"></div>
 
     <section id="conflict-board">
-        <div class="board-header">ACTIVE THEATERS</div>
+        <div class="board-header">
+            <div class="header-left">
+                <span class="board-title">ACTIVE THEATERS</span>
+                <div id="level-stats"></div>
+            </div>
+            <div class="header-right">
+                <button id="board-toggle" onclick="toggleBoard()">_</button>
+            </div>
+        </div>
         <div id="conflict-stream"></div>
     </section>
 
@@ -51,6 +62,9 @@
             </div>
             <div id="p-risk-tag"></div>
             <div id="p-subject"></div>
+            <div id="portal-actions">
+                <button id="share-intel-btn" class="action-btn">SHARE INTEL</button>
+            </div>
         </div>
     </div>
 
